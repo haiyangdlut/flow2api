@@ -1,5 +1,5 @@
 [global]
-api_key = "han1234"
+api_key = "QCa2K5mqn2"
 admin_username = "admin"
 admin_password = "admin"
 
@@ -26,17 +26,17 @@ max_poll_attempts = 200
 
 [server]
 host = "0.0.0.0"
-port = 8000
+port = 9000
 
 [debug]
-enabled = false
+enabled = true
 log_requests = true
 log_responses = true
 mask_token = true
 
 [proxy]
-proxy_enabled = false
-proxy_url = ""
+proxy_enabled = true
+proxy_url = "http://f2960712442:sevgurnu@us.a510.kdlfps.com:18866"
 
 [generation]
 image_timeout = 300
@@ -49,12 +49,12 @@ call_mode = "default"  # default=随机轮询策略, polling=顺序轮询策略
 error_ban_threshold = 3
 
 [cache]
-enabled = false
+enabled = true
 timeout = 7200  # 缓存超时时间(秒), 默认2小时
 base_url = ""   # 缓存文件访问的基础URL, 留空则使用服务器地址
 
 [captcha]
-captcha_method = "personal"  # 打码方式: yescaptcha/browser/personal/remote_browser
+captcha_method = "browser"  # 打码方式: yescaptcha/browser/personal/remote_browser
 browser_recaptcha_settle_seconds = 1.0  # 打码完成额外稳态等待，速度优先可设 1.0
 browser_launch_background = true  # browser 打码默认后台启动(最小化/避免抢占前台)
 

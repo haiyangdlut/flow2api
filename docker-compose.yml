@@ -2,14 +2,16 @@ version: '3.8'
 
 services:
   flow2api:
-    image: ghcr.io/thesmallhancat/flow2api:latest
+    build: .
     container_name: flow2api
     ports:
-      - "38000:8000"
+      - "9000:9000"
     volumes:
       - ./data:/app/data
       - ./tmp:/app/tmp
       - ./config/setting.toml:/app/config/setting.toml
+      - ./src:/app/src
+      - ./main.py:/app/main.py
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped

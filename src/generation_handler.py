@@ -977,8 +977,7 @@ class GenerationHandler:
                     generation_result=generation_result,
                     response_state=response_state,
                     request_log_state=request_log_state,
-                    pending_token_state=pending_token_state,
-                    generation_config=generation_config
+                    pending_token_state=pending_token_state
                 ):
                     yield chunk
             else:  # video
@@ -1152,8 +1151,7 @@ class GenerationHandler:
         generation_result: Optional[Dict[str, Any]] = None,
         response_state: Optional[Dict[str, Any]] = None,
         request_log_state: Optional[Dict[str, Any]] = None,
-        pending_token_state: Optional[Dict[str, bool]] = None,
-        generation_config: Optional[Any] = None
+        pending_token_state: Optional[Dict[str, bool]] = None
     ) -> AsyncGenerator:
         """处理图片生成 (同步返回)"""
 

@@ -9,11 +9,12 @@ services:
     image: flow2api:headed
     container_name: flow2api-headed
     ports:
-      - "8000:8000"
+      - "8000:9000"
     volumes:
       - ./data:/app/data
       - ./tmp:/app/tmp
       - ./config/setting.toml:/app/config/setting.toml
+      - ./src:/app/src:ro
     environment:
       - PYTHONUNBUFFERED=1
       - ALLOW_DOCKER_HEADED_CAPTCHA=true

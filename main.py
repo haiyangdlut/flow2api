@@ -9,5 +9,6 @@ if __name__ == "__main__":
         "src.main:app",
         host=config.server_host,
         port=config.server_port,
-        reload=False
+        reload=False,
+        reload_dirs=["/app/src", "/app"]
     )
