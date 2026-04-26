@@ -252,7 +252,7 @@ class FlowClient:
         start_time = time.time()
 
         try:
-            async with AsyncSession() as session:
+                async with AsyncSession() as session:
                 if method.upper() == "GET":
                     response = await session.get(
                         url,
@@ -323,6 +323,14 @@ class FlowClient:
                 debug_logger.log_error(f"[API FAILED] Exception: {error_msg}")
 
             if self._should_fallback_to_urllib(error_msg):
+                # curl_cffi 失败，尝试重试
+                debug_logger.log_warning(
+                    f"[HTTP FALLBACK] curl_cffi 请求失败 (尝试 {attempt + 1}/{max_retries}): {error_msg[:100]}"
+                )
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)  # 指数退避
+                    continue
+                # 重试耗尽，尝试回退到 urllib
                 debug_logger.log_warning(
                     f"[HTTP FALLBACK] curl_cffi 请求失败，回退 urllib: {method.upper()} {url}"
                 )
@@ -358,6 +366,7 @@ class FlowClient:
                 "curl: (35)",
                 "curl: (52)",
                 "curl: (56)",
+                "curl: (16)",
                 "connection timed out",
                 "could not connect",
                 "failed to connect",
