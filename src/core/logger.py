@@ -1,6 +1,7 @@
 """Debug logger module for detailed API request/response logging"""
 import json
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -14,7 +15,7 @@ class DebugLogger:
         self._setup_logger()
 
     def _setup_logger(self):
-        """Setup file logger"""
+        """Setup file + stdout logger (stdout for docker logs)"""
         # Create logger
         self.logger = logging.getLogger("debug_logger")
         self.logger.setLevel(logging.DEBUG)
@@ -22,23 +23,27 @@ class DebugLogger:
         # Remove existing handlers
         self.logger.handlers.clear()
 
-        # Create file handler
+        # Create formatter
+        formatter = logging.Formatter(
+            '%(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+
+        # 1) File handler -> logs.txt
         file_handler = logging.FileHandler(
             self.log_file,
             mode='a',
             encoding='utf-8'
         )
         file_handler.setLevel(logging.DEBUG)
-
-        # Create formatter
-        formatter = logging.Formatter(
-            '%(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
         file_handler.setFormatter(formatter)
-
-        # Add handler
         self.logger.addHandler(file_handler)
+
+        # 2) Stream handler -> stdout (docker logs -f)
+        stdout_handler = logging.StreamHandler(sys.stdout)
+        stdout_handler.setLevel(logging.DEBUG)
+        stdout_handler.setFormatter(formatter)
+        self.logger.addHandler(stdout_handler)
 
         # Prevent propagation to root logger
         self.logger.propagate = False
@@ -70,17 +75,22 @@ class DebugLogger:
         if isinstance(data, dict):
             result = {}
             for key, value in data.items():
-                # 对特定的大字段进行截断
-                if key in ("encodedImage", "base64", "imageData", "data") and isinstance(value, str) and len(value) > max_length:
+                # 对特定的大字段进行截断（base64 图片/视频数据）
+                _base64_keys = (
+                    "encodedImage", "base64", "imageData", "data",
+                    "imageBytes", "rawImageBytes", "image_data", "raw_image_bytes",
+                    "image", "thumbnail", "video", "videoData",
+                )
+                if key in _base64_keys and isinstance(value, str) and len(value) > max_length:
                     result[key] = f"{value[:100]}... (truncated, total {len(value)} chars)"
                 else:
                     result[key] = self._truncate_large_fields(value, max_length)
             return result
         elif isinstance(data, list):
             return [self._truncate_large_fields(item, max_length) for item in data]
-        elif isinstance(data, str) and len(data) > 10000:
+        elif isinstance(data, str) and len(data) > 5000:
             # 对超长字符串进行截断（可能是未知的 base64 字段）
-            return f"{data[:100]}... (truncated, total {len(data)} chars)"
+            return f"{data[:200]}... (truncated, total {len(data)} chars)"
         return data
 
     def log_request(
