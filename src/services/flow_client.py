@@ -39,6 +39,11 @@ class FlowClient:
         )
         self._remote_browser_prefill_last_sent: Dict[str, float] = {}
 
+        # reCAPTCHA token 缓存：key=(project_id, action), value=(token, timestamp)
+        # 避免同一上下文内重复打码，减少被 Google 风控的概率
+        self._captcha_token_cache: Dict[tuple, tuple] = {}
+        self._captcha_cache_ttl_seconds = getattr(config, "browser_recaptcha_cache_ttl_seconds", 180) or 180
+
         # Default "real browser" headers (Android Chrome style) to reduce upstream 4xx/5xx instability.
         # These will be applied as defaults (won't override caller-provided headers).
         self._default_client_headers = {
@@ -252,7 +257,7 @@ class FlowClient:
         start_time = time.time()
 
         try:
-                async with AsyncSession() as session:
+            async with AsyncSession() as session:
                 if method.upper() == "GET":
                     response = await session.get(
                         url,
@@ -323,16 +328,9 @@ class FlowClient:
                 debug_logger.log_error(f"[API FAILED] Exception: {error_msg}")
 
             if self._should_fallback_to_urllib(error_msg):
-                # curl_cffi 失败，尝试重试
+                # curl_cffi 失败，回退到 urllib
                 debug_logger.log_warning(
-                    f"[HTTP FALLBACK] curl_cffi 请求失败 (尝试 {attempt + 1}/{max_retries}): {error_msg[:100]}"
-                )
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)  # 指数退避
-                    continue
-                # 重试耗尽，尝试回退到 urllib
-                debug_logger.log_warning(
-                    f"[HTTP FALLBACK] curl_cffi 请求失败，回退 urllib: {method.upper()} {url}"
+                    f"[HTTP FALLBACK] curl_cffi failed, trying urllib: {method.upper()} {url}"
                 )
                 try:
                     return await asyncio.to_thread(
@@ -346,7 +344,7 @@ class FlowClient:
                     )
                 except Exception as fallback_error:
                     debug_logger.log_error(
-                        f"[HTTP FALLBACK] urllib 回退也失败: {fallback_error}"
+                        f"[HTTP FALLBACK] urllib also failed: {fallback_error}"
                     )
                     raise Exception(
                         f"Flow API request failed: curl={error_msg}; urllib={fallback_error}"
@@ -1081,6 +1079,12 @@ class FlowClient:
                     log_prefix="[IMAGE] 生成",
                 )
                 if should_retry:
+                    # 清除缓存的 recaptcha token，强制下一次循环重新打码
+                    cache_key = (token_id, project_id, "IMAGE_GENERATION")
+                    self._captcha_token_cache.pop(cache_key, None)
+                    debug_logger.log_warning(
+                        f"[IMAGE] 已清除失败的 recaptcha 缓存，下一轮将重新打码"
+                    )
                     continue
                 raise
             finally:
@@ -1179,6 +1183,12 @@ class FlowClient:
                     log_prefix="[IMAGE UPSAMPLE] 放大",
                 )
                 if should_retry:
+                    # 清除缓存的 recaptcha token，强制下一次循环重新打码
+                    cache_key = (token_id, project_id, "IMAGE_GENERATION")
+                    self._captcha_token_cache.pop(cache_key, None)
+                    debug_logger.log_warning(
+                        f"[IMAGE UPSAMPLE] 已清除失败的 recaptcha 缓存，下一轮将重新打码"
+                    )
                     continue
                 raise
             finally:
@@ -2326,6 +2336,18 @@ class FlowClient:
         captcha_method = config.captcha_method
         debug_logger.log_info(f"[reCAPTCHA] 开始获取 token: method={captcha_method}, project_id={project_id}, action={action}")
 
+        # 优先从缓存读取（有效期内的 token 直接复用，减少打码次数 = 减少风控暴露）
+        cache_key = (token_id, project_id, action)
+        if cache_key in self._captcha_token_cache:
+            cached_token, cached_ts, cached_browser_id = self._captcha_token_cache[cache_key]
+            age = time.time() - cached_ts
+            if age < self._captcha_cache_ttl_seconds:
+                debug_logger.log_info(f"[reCAPTCHA] 命中缓存 token，age={age:.0f}s < {self._captcha_cache_ttl_seconds}s，直接复用 (browser_id={cached_browser_id})")
+                return cached_token, cached_browser_id
+            else:
+                debug_logger.log_info(f"[reCAPTCHA] 缓存 token 已过期（age={age:.0f}s），重新打码")
+                del self._captcha_token_cache[cache_key]
+
         # 内置浏览器打码 (nodriver)
         if captcha_method == "personal":
             debug_logger.log_info(f"[reCAPTCHA] 使用 personal 模式")
@@ -2338,7 +2360,7 @@ class FlowClient:
                 debug_logger.log_info(f"[reCAPTCHA] get_token 返回: {token[:50] if token else None}...")
                 fingerprint = service.get_last_fingerprint() if token else None
                 self._set_request_fingerprint(fingerprint if token else None)
-                return token, None
+                return token, None  # personal 模式无 browser_id， callers 不要依赖它做 recycle
             except RuntimeError as e:
                 # 捕获 Docker 环境或依赖缺失的明确错误
                 error_msg = str(e)
@@ -2363,9 +2385,11 @@ class FlowClient:
                 token, browser_id = await service.get_token(project_id, action, token_id=token_id)
                 fingerprint = await service.get_fingerprint(browser_id) if token else None
                 self._set_request_fingerprint(fingerprint if token else None)
+                if token:
+                    self._captcha_token_cache[cache_key] = (token, time.time(), browser_id)
+                    debug_logger.log_info(f"[reCAPTCHA Browser] token 已缓存 (browser_id={browser_id}, ttl={self._captcha_cache_ttl_seconds}s)")
                 return token, browser_id
             except RuntimeError as e:
-                # 捕获 Docker 环境或依赖缺失的明确错误
                 error_msg = str(e)
                 debug_logger.log_error(f"[reCAPTCHA Browser] {error_msg}")
                 print(f"[reCAPTCHA] ❌ 有头浏览器打码失败: {error_msg}")
@@ -2399,6 +2423,9 @@ class FlowClient:
                 self._set_request_fingerprint(fingerprint if token else None)
                 if not token or not session_id:
                     raise RuntimeError(f"remote_browser 返回缺少 token/session_id: {payload}")
+                if token:
+                    self._captcha_token_cache[cache_key] = (token, time.time(), str(session_id))
+                    debug_logger.log_info(f"[reCAPTCHA RemoteBrowser] token 已缓存 (session_id={session_id}, ttl={self._captcha_cache_ttl_seconds}s)")
                 return token, str(session_id)
             except Exception as e:
                 debug_logger.log_error(f"[reCAPTCHA RemoteBrowser] 错误: {str(e)}")
@@ -2408,6 +2435,9 @@ class FlowClient:
         elif captcha_method in ["yescaptcha", "capmonster", "ezcaptcha", "capsolver"]:
             self._set_request_fingerprint(None)
             token = await self._get_api_captcha_token(captcha_method, project_id, action)
+            if token:
+                self._captcha_token_cache[cache_key] = (token, time.time(), None)
+                debug_logger.log_info(f"[reCAPTCHA {captcha_method}] token 已缓存 (ttl={self._captcha_cache_ttl_seconds}s)")
             return token, None
         else:
             debug_logger.log_info(f"[reCAPTCHA] 未知的打码方式: {captcha_method}")

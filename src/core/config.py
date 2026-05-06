@@ -382,6 +382,18 @@ class Config:
             self._config["captcha"] = {}
         self._config["captcha"]["browser_launch_background"] = bool(enabled)
 
+    def set_browser_score_dom_wait_seconds(self, seconds: float):
+        """设置有头打码自定义站点时等待 DOM 就绪的秒数。"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["browser_score_dom_wait_seconds"] = max(5.0, min(60.0, float(seconds)))
+
+    def set_browser_recaptcha_cache_ttl_seconds(self, ttl: int):
+        """设置 reCAPTCHA token 缓存有效期（秒）。"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["browser_recaptcha_cache_ttl_seconds"] = max(30, min(3600, int(ttl)))
+
     @property
     def browser_recaptcha_settle_seconds(self) -> float:
         """有头打码在 reload/clr 就绪后的额外等待秒数。"""
@@ -390,6 +402,24 @@ class Config:
             return max(0.0, min(10.0, float(value)))
         except Exception:
             return 3.0
+
+    @property
+    def browser_score_dom_wait_seconds(self) -> float:
+        """有头打码自定义站点时等待 DOM 就绪的秒数。"""
+        value = self._config.get("captcha", {}).get("browser_score_dom_wait_seconds", 25.0)
+        try:
+            return max(5.0, min(60.0, float(value)))
+        except Exception:
+            return 25.0
+
+    @property
+    def browser_recaptcha_cache_ttl_seconds(self) -> int:
+        """reCAPTCHA token 缓存有效期（秒），配合代理IP轮换节奏。"""
+        value = self._config.get("captcha", {}).get("browser_recaptcha_cache_ttl_seconds", 180)
+        try:
+            return max(30, min(3600, int(value)))
+        except Exception:
+            return 180
 
     @property
     def browser_idle_ttl_seconds(self) -> int:
